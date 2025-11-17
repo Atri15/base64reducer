@@ -1,3 +1,3 @@
 <Solution>
-  <Project Path="ConsoleApp1/base64reducer.csproj" />
+  <Project Path="src/base64reducer.csproj" />
 </Solution>
