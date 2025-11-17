@@ -29,19 +29,19 @@ Built with `ImageSharp` and `System.CommandLine`.
 
 #### 1. Convert image to Base64 (no size limit)
 ```bash
-image2b64 photo.jpg
+base64reducer photo.jpg
 # Output: UklGRtYLA... (full Base64 string)
 ```
 
 #### 2. Limit binary size to **24 KB** (e.g. for JSON payloads)
 ```bash
-image2b64 logo.png --max-bytes 24576
+base64reducer logo.png --max-bytes 24576
 # Automatically reduces quality/size until ≤24,576 bytes
 ```
 
 #### 3. Limit Base64 string to **32,768 chars** (≈24 KB binary)
 ```bash
-image2b64 banner.jpg --max-base64 32768
+base64reducer banner.jpg --max-base64 32768
 ```
 
 ---
@@ -50,19 +50,19 @@ image2b64 banner.jpg --max-base64 32768
 
 #### 4. Output full `data:` URI (ready for HTML/CSS)
 ```bash
-image2b64 icon.png --max-bytes 10000 --data-uri
+base64reducer icon.png --max-bytes 10000 --data-uri
 # Output: image/png;base64,iVBORw0KG...
 ```
 
 #### 5. Save optimized **WebP** as binary file (not Base64)
 ```bash
-image2b64 input.jpg --max-bytes 15000 --binary --output output.webp
+base64reducer input.jpg --max-bytes 15000 --binary --output output.webp
 # Produces a valid, smaller WebP file
 ```
 
 #### 6. Force **JPEG** output (for legacy browser support)
 ```bash
-image2b64 modern.webp --max-bytes 20000 --format Jpeg --output legacy.jpg
+base64reducer modern.webp --max-bytes 20000 --format Jpeg --output legacy.jpg
 ```
 
 ---
@@ -71,12 +71,12 @@ image2b64 modern.webp --max-bytes 20000 --format Jpeg --output legacy.jpg
 
 #### 7. Read from `stdin`, write Base64 to file
 ```bash
-curl -s https://example.com/avatar.jpg | image2b64 - --max-bytes 8192 > avatar.b64
+curl -s https://example.com/avatar.jpg | base64reducer - --max-bytes 8192 > avatar.b64
 ```
 
 #### 8. Embed optimized image directly into JSON (Bash)
 ```bash
-AVATAR_B64=$(cat avatar.jpg | image2b64 - --max-bytes 12000)
+AVATAR_B64=$(cat avatar.jpg | base64reducer - --max-bytes 12000)
 echo "{\"avatar\":\"data:image/jpeg;base64,$AVATAR_B64\"}" > config.json
 ```
 
@@ -86,7 +86,7 @@ echo "{\"avatar\":\"data:image/jpeg;base64,$AVATAR_B64\"}" > config.json
 - name: Optimize favicon
   run: |
     curl -s https://design.example.com/favicon.png \
-      | image2b64 - --max-bytes 4096 --format WebP --binary \
+      | base64reducer - --max-bytes 4096 --format WebP --binary \
       > public/favicon.webp
 ```
 
@@ -96,7 +96,7 @@ echo "{\"avatar\":\"data:image/jpeg;base64,$AVATAR_B64\"}" > config.json
 
 #### 10. Aggressive compression: max 400px, quality 40–80
 ```bash
-image2b64 huge-photo.jpg \
+base64reducer huge-photo.jpg \
   --max-bytes 10000 \
   --max-size 400 \
   --quality 80 \
@@ -105,7 +105,7 @@ image2b64 huge-photo.jpg \
 
 #### 11. Preserve higher quality (min 70) — stricter size control
 ```bash
-image2b64 product.jpg \
+base64reducer product.jpg \
   --max-bytes 30000 \
   --min-quality 70 \
   --format WebP
@@ -118,20 +118,20 @@ image2b64 product.jpg \
 
 #### 12. Check final size without saving
 ```bash
-image2b64 image.jpg --max-bytes 16384 \
+base64reducer image.jpg --max-bytes 16384 \
   | wc -c        # Linux/macOS: Base64 length
 # or
-image2b64 image.jpg --max-bytes 16384 --binary \
+base64reducer image.jpg --max-bytes 16384 --binary \
   | wc -c        # Binary size
 ```
 
 #### 13. Compare JPEG vs WebP savings
 ```bash
 # JPEG
-image2b64 img.jpg --max-bytes 20000 --format Jpeg --binary | wc -c
+base64reducer img.jpg --max-bytes 20000 --format Jpeg --binary | wc -c
 
 # WebP (usually ~30% smaller)
-image2b64 img.jpg --max-bytes 20000 --format WebP --binary | wc -c
+base64reducer img.jpg --max-bytes 20000 --format WebP --binary | wc -c
 ```
 
 ---
@@ -143,13 +143,13 @@ image2b64 img.jpg --max-bytes 20000 --format WebP --binary | wc -c
 mkdir -p optimized
 for f in assets/*.png; do
   outfile="optimized/$(basename "$f" .png).webp"
-  image2b64 "$f" --max-bytes 12288 --format WebP --binary --output "$outfile"
+  base64reducer "$f" --max-bytes 12288 --format WebP --binary --output "$outfile"
 done
 ```
 
 #### 15. One-liner: create thumbnail + data URI
 ```bash
-image2b64 cover.jpg --max-size 200 --max-bytes 6144 --data-uri | tee thumb-uri.txt
+base64reducer cover.jpg --max-size 200 --max-bytes 6144 --data-uri | tee thumb-uri.txt
 ```
 
 ---
@@ -158,14 +158,14 @@ image2b64 cover.jpg --max-size 200 --max-bytes 6144 --data-uri | tee thumb-uri.t
 
 #### 16. What if it *can’t* compress enough?
 ```bash
-image2b64 huge.tiff --max-bytes 1000
+base64reducer huge.tiff --max-bytes 1000
 # ❌ Error: Failed to compress... Tried down to quality=30 and size=400px.
 # → Pre-resize or increase limit
 ```
 
 #### 17. Validate output is a valid image (after `--binary`)
 ```bash
-image2b64 photo.jpg --max-bytes 10000 --binary --output test.webp
+base64reducer photo.jpg --max-bytes 10000 --binary --output test.webp
 file test.webp           # Linux/macOS: "Web/P image data"
 identify test.webp       # (if ImageMagick installed)
 ```
