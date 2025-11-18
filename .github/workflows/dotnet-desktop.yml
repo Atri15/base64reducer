@@ -1,0 +1,153 @@
+name: 🚀 Release
+
+on:
+  # Запуск при создании тега вида v1.2.3 или v1.2.3-rc1
+  push:
+    tags:
+      - 'v*'
+  # ИЛИ при публикации релиза (чтобы пересобрать draft)
+  release:
+    types: [published]
+
+permissions:
+  contents: write  # необходимо для загрузки артефактов в релиз
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            arch: x64
+            rid: win-x64
+            ext: .exe
+            archive: zip
+          - os: windows-latest
+            arch: arm64
+            rid: win-arm64
+            ext: .exe
+            archive: zip
+          # Linux
+          - os: ubuntu-latest
+            arch: x64
+            rid: linux-x64
+            ext: ''
+            archive: tar.gz
+          - os: ubuntu-latest
+            arch: arm64
+            rid: linux-arm64
+            ext: ''
+            archive: tar.gz
+          # macOS
+          - os: macos-latest
+            arch: x64
+            rid: osx-x64
+            ext: ''
+            archive: tar.gz
+          - os: macos-latest
+            arch: arm64
+            rid: osx-arm64
+            ext: ''
+            archive: tar.gz
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 🟦 Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 🔍 Get Version from Tag
+        id: get_version
+        run: |
+          # Убираем 'v' из тега: v1.2.0 → 1.2.0
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: 🏗️ Publish
+        run: |
+          dotnet publish -c Release \
+            -r ${{ matrix.rid }} \
+            -p:Version=${{ steps.get_version.outputs.version }} \
+            --self-contained true \
+            --output ./publish
+
+      - name: 📦 Prepare Artifact
+        id: prepare
+        shell: bash
+        run: |
+          cd publish
+          BIN_NAME="base64reducer${{ matrix.ext }}"
+          
+          # Переименовываем в каноничное имя
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            mv base64reducer.exe "$BIN_NAME" 2>/dev/null || mv base64reducer.exe "$BIN_NAME"
+          else
+            mv base64reducer "$BIN_NAME" 2>/dev/null || mv base64reducer "$BIN_NAME"
+          fi
+          
+          chmod +x "$BIN_NAME"
+          
+          # Формируем имя архива: base64reducer-v1.2.0-linux-x64.tar.gz
+          ARCHIVE_NAME="base64reducer-${{ steps.get_version.outputs.version }}-${{ matrix.rid }}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a "$ARCHIVE_NAME.zip" "$BIN_NAME"
+            echo "asset_path=$ARCHIVE_NAME.zip" >> $GITHUB_OUTPUT
+          else
+            tar -czf "$ARCHIVE_NAME.tar.gz" "$BIN_NAME"
+            echo "asset_path=$ARCHIVE_NAME.tar.gz" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "asset_name=$(basename ${{ steps.prepare.outputs.asset_path }})" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.asset_name }}
+          path: ./publish/${{ steps.prepare.outputs.asset_path }}
+
+  release:
+    name: 🎁 Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 📝 Generate Checksums
+        run: |
+          cd artifacts
+          sha256sum * > checksums.txt
+          echo "## 🔐 Checksums" > ../RELEASE_CHECKSUMS.md
+          echo "\`\`\`" >> ../RELEASE_CHECKSUMS.md
+          cat checksums.txt >> ../RELEASE_CHECKSUMS.md
+          echo "\`\`\`" >> ../RELEASE_CHECKSUMS.md
+
+      - name: 🚀 Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/checksums.txt
+          body_path: RELEASE_CHECKSUMS.md
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}  # v1.2.0-rc1 → prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
