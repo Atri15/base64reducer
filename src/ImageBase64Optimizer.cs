@@ -14,7 +14,7 @@ public enum TargetFormat
 
 public static class ImageBase64Optimizer
 {
-    private readonly record struct EncodeResult(byte[] BinaryData, string Base64String);
+    private readonly record struct EncodeResult(byte[] BinaryData, int Base64Length);
 
     public static byte[] OptimizeToBytes(
         Stream inputStream,
@@ -24,6 +24,102 @@ public static class ImageBase64Optimizer
         int maxSize = 0,
         int initialQuality = 90,
         int minQuality = 30)
+    {
+        var (binary, _) = OptimizeCore(inputStream, maxBase64Length, maxBinarySizeBytes, targetFormat, maxSize, initialQuality, minQuality);
+        return binary;
+    }
+
+    public static string OptimizeToBase64(
+        Stream inputStream,
+        int? maxBase64Length = null,
+        int? maxBinarySizeBytes = null,
+        TargetFormat targetFormat = TargetFormat.WebP,
+        int maxSize = 0,
+        int initialQuality = 90,
+        int minQuality = 30)
+    {
+        var (binary, base64Length) = OptimizeCore(inputStream, maxBase64Length, maxBinarySizeBytes, targetFormat, maxSize, initialQuality, minQuality);
+        return Convert.ToBase64String(binary);
+    }
+
+    public static string OptimizeToDataUri(
+        Stream inputStream,
+        int? maxBase64Length = null,
+        int? maxBinarySizeBytes = null,
+        TargetFormat targetFormat = TargetFormat.WebP,
+        int maxSize = 0,
+        int initialQuality = 90,
+        int minQuality = 30)
+    {
+        var (binary, base64Length) = OptimizeCore(inputStream, maxBase64Length, maxBinarySizeBytes, targetFormat, maxSize, initialQuality, minQuality);
+        string mimeType = targetFormat switch
+        {
+            TargetFormat.Jpeg => "image/jpeg",
+            TargetFormat.WebP => "image/webp",
+            _ => "application/octet-stream"
+        };
+        return $"{mimeType};base64,{Convert.ToBase64String(binary)}";
+    }
+
+    public static byte[] OptimizeToBytes(
+        string inputPath,
+        int? maxBase64Length = null,
+        int? maxBinarySizeBytes = null,
+        TargetFormat targetFormat = TargetFormat.WebP,
+        int maxSize = 0,
+        int initialQuality = 90,
+        int minQuality = 30)
+    {
+        using var fs = File.OpenRead(inputPath);
+        var (binary, _) = OptimizeCore(fs, maxBase64Length, maxBinarySizeBytes,
+            targetFormat, maxSize, initialQuality, minQuality);
+        return binary;
+    }
+
+    public static string OptimizeToBase64(
+        string inputPath,
+        int? maxBase64Length = null,
+        int? maxBinarySizeBytes = null,
+        TargetFormat targetFormat = TargetFormat.WebP,
+        int maxSize = 0,
+        int initialQuality = 90,
+        int minQuality = 30)
+    {
+        using var fs = File.OpenRead(inputPath);
+        var (binary, base64Length) = OptimizeCore(fs, maxBase64Length, maxBinarySizeBytes,
+            targetFormat, maxSize, initialQuality, minQuality);
+        return Convert.ToBase64String(binary);
+    }
+
+    public static string OptimizeToDataUri(
+        string inputPath,
+        int? maxBase64Length = null,
+        int? maxBinarySizeBytes = null,
+        TargetFormat targetFormat = TargetFormat.WebP,
+        int maxSize = 0,
+        int initialQuality = 90,
+        int minQuality = 30)
+    {
+        using var fs = File.OpenRead(inputPath);
+        var (binary, base64Length) = OptimizeCore(fs, maxBase64Length, maxBinarySizeBytes,
+            targetFormat, maxSize, initialQuality, minQuality);
+        string mimeType = targetFormat switch
+        {
+            TargetFormat.Jpeg => "image/jpeg",
+            TargetFormat.WebP => "image/webp",
+            _ => "application/octet-stream"
+        };
+        return $"{mimeType};base64,{Convert.ToBase64String(binary)}";
+    }
+
+    private static (byte[] BinaryData, int Base64Length) OptimizeCore(
+        Stream inputStream,
+        int? maxBase64Length,
+        int? maxBinarySizeBytes,
+        TargetFormat targetFormat,
+        int maxSize,
+        int initialQuality,
+        int minQuality)
     {
         ValidateLimits(maxBase64Length, maxBinarySizeBytes);
 
@@ -43,14 +139,30 @@ public static class ImageBase64Optimizer
             }
         }
 
-        var quality = Math.Min(100, Math.Max(minQuality, initialQuality));
-        while (quality >= minQuality)
-        {
-            var result = TryEncode(image, targetFormat, quality);
-            if (IsWithinLimits(result, maxBase64Length, maxBinarySizeBytes))
-                return result.BinaryData;
+        int low = minQuality;
+        int high = Math.Min(100, Math.Max(minQuality, initialQuality));
+        int bestQuality = -1;
 
-            quality -= 5;
+        while (low <= high)
+        {
+            int mid = (low + high) / 2;
+            var result = TryEncode(image, targetFormat, mid);
+
+            if (IsWithinLimits(result, maxBase64Length, maxBinarySizeBytes))
+            {
+                bestQuality = mid;
+                low = mid + 5;
+            }
+            else
+            {
+                high = mid - 5;
+            }
+        }
+
+        if (bestQuality != -1)
+        {
+            var result = TryEncode(image, targetFormat, bestQuality);
+            return (result.BinaryData, result.Base64Length);
         }
 
         if (maxSize == 0)
@@ -65,98 +177,28 @@ public static class ImageBase64Optimizer
                     Mode = ResizeMode.Max
                 }));
 
-                quality = Math.Max(50, minQuality);
-                while (quality >= minQuality)
+                low = minQuality;
+                high = Math.Max(50, minQuality);
+
+                while (low <= high)
                 {
-                    var result = TryEncode(resized, targetFormat, quality);
+                    int mid = (low + high) / 2;
+                    var result = TryEncode(resized, targetFormat, mid);
+
                     if (IsWithinLimits(result, maxBase64Length, maxBinarySizeBytes))
-                        return result.BinaryData;
-                    quality -= 5;
+                    {
+                        return (result.BinaryData, result.Base64Length);
+                    }
+                    else
+                    {
+                        high = mid - 5;
+                    }
                 }
             }
         }
 
         throw new InvalidOperationException(
             $"Failed to compress image to satisfy limits. Tried down to quality={minQuality} and size=400px.");
-    }
-
-    // Перегрузки для удобства
-    public static string OptimizeToBase64(
-        Stream inputStream,
-        int? maxBase64Length = null,
-        int? maxBinarySizeBytes = null,
-        TargetFormat targetFormat = TargetFormat.WebP,
-        int maxSize = 0,
-        int initialQuality = 90,
-        int minQuality = 30)
-    {
-        var binary = OptimizeToBytes(inputStream, maxBase64Length, maxBinarySizeBytes,
-            targetFormat, maxSize, initialQuality, minQuality);
-        return Convert.ToBase64String(binary);
-    }
-
-    public static string OptimizeToDataUri(
-        Stream inputStream,
-        int? maxBase64Length = null,
-        int? maxBinarySizeBytes = null,
-        TargetFormat targetFormat = TargetFormat.WebP,
-        int maxSize = 0,
-        int initialQuality = 90,
-        int minQuality = 30)
-    {
-        var base64 = OptimizeToBase64(inputStream, maxBase64Length, maxBinarySizeBytes,
-            targetFormat, maxSize, initialQuality, minQuality);
-        string mimeType = targetFormat switch
-        {
-            TargetFormat.Jpeg => "image/jpeg",
-            TargetFormat.WebP => "image/webp",
-            _ => "application/octet-stream"
-        };
-        return $"{mimeType};base64,{base64}";
-    }
-
-    // ===== СТАРЫЕ методы (для файла) — работают через Stream =====
-
-    public static byte[] OptimizeToBytes(
-        string inputPath,
-        int? maxBase64Length = null,
-        int? maxBinarySizeBytes = null,
-        TargetFormat targetFormat = TargetFormat.WebP,
-        int maxSize = 0,
-        int initialQuality = 90,
-        int minQuality = 30)
-    {
-        using var fs = File.OpenRead(inputPath);
-        return OptimizeToBytes(fs, maxBase64Length, maxBinarySizeBytes,
-            targetFormat, maxSize, initialQuality, minQuality);
-    }
-
-    public static string OptimizeToBase64(
-        string inputPath,
-        int? maxBase64Length = null,
-        int? maxBinarySizeBytes = null,
-        TargetFormat targetFormat = TargetFormat.WebP,
-        int maxSize = 0,
-        int initialQuality = 90,
-        int minQuality = 30)
-    {
-        using var fs = File.OpenRead(inputPath);
-        return OptimizeToBase64(fs, maxBase64Length, maxBinarySizeBytes,
-            targetFormat, maxSize, initialQuality, minQuality);
-    }
-
-    public static string OptimizeToDataUri(
-        string inputPath,
-        int? maxBase64Length = null,
-        int? maxBinarySizeBytes = null,
-        TargetFormat targetFormat = TargetFormat.WebP,
-        int maxSize = 0,
-        int initialQuality = 90,
-        int minQuality = 30)
-    {
-        using var fs = File.OpenRead(inputPath);
-        return OptimizeToDataUri(fs, maxBase64Length, maxBinarySizeBytes,
-            targetFormat, maxSize, initialQuality, minQuality);
     }
 
     private static EncodeResult TryEncode(Image image, TargetFormat format, int quality)
@@ -171,8 +213,8 @@ public static class ImageBase64Optimizer
 
         image.Save(ms, encoder);
         var binary = ms.ToArray();
-        var b64 = Convert.ToBase64String(binary);
-        return new EncodeResult(binary, b64);
+        int base64Length = (binary.Length + 2) / 3 * 4;
+        return new EncodeResult(binary, base64Length);
     }
 
     private static bool IsWithinLimits(
@@ -180,9 +222,14 @@ public static class ImageBase64Optimizer
         int? maxBase64Length,
         int? maxBinarySizeBytes)
     {
-        bool base64Ok = !maxBase64Length.HasValue || result.Base64String.Length <= maxBase64Length.Value;
+        bool base64Ok = !maxBase64Length.HasValue || result.Base64Length <= maxBase64Length.Value;
         bool binaryOk = !maxBinarySizeBytes.HasValue || result.BinaryData.Length <= maxBinarySizeBytes.Value;
         return base64Ok && binaryOk;
+    }
+
+    private static int GetBase64EncodedLength(int binaryLength)
+    {
+        return (binaryLength + 2) / 3 * 4;
     }
 
     private static void ValidateLimits(int? maxBase64, int? maxBinary)

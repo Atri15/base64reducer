@@ -111,7 +111,7 @@ internal static class Program
                 try
                 {
                     string resultText = "";
-                    byte[] resultBytes = null;
+                    byte[]? resultBytes = null;
 
                     using (inputStream)
                     {
